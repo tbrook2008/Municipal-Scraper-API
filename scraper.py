@@ -17,18 +17,33 @@ def get_city_state(zipcode: str):
         print(f"Error fetching zip code {zipcode}: {e}")
         return None
 
-from googlesearch import search
-
 def find_official_website(city_state: str):
-    """Search for the official municipal website using Google Search."""
+    """Search for the official municipal website using DuckDuckGo HTML."""
     query = f"official municipal government website for {city_state}"
+    url = 'https://html.duckduckgo.com/html/'
+    data = {'q': query}
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+    }
+    
     try:
-        results = list(search(query, num_results=3))
-        print(f"DEBUG GOOGLE RESULTS: {results}")
+        response = requests.post(url, data=data, headers=headers, timeout=10)
+        soup = BeautifulSoup(response.text, 'html.parser')
+        
+        results = []
+        for a in soup.find_all('a', class_='result__url'):
+            href = a.get('href')
+            if href:
+                # Basic cleanup of duckduckgo redirect if present
+                if '//duckduckgo.com/l/?' in href:
+                    # Sometimes DDG wraps URLs
+                    continue
+                results.append(href)
+                
         if results:
-            for url in results:
-                if '.gov' in url or '.us' in url or 'city' in url or 'town' in url:
-                    return url
+            for r_url in results:
+                if '.gov' in r_url or '.us' in r_url or 'city' in r_url or 'town' in r_url:
+                    return r_url
             return results[0]
     except Exception as e:
         print(f"Error searching for website for {city_state}: {e}")
