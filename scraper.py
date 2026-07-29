@@ -10,21 +10,42 @@ def get_city_state(zipcode: str):
         if response.status_code == 200:
             data = response.json()
             city = data['places'][0]['place name']
-            state = data['places'][0]['state abbreviation']
-            return f"{city}, {state}"
-        return None
+            state_abbr = data['places'][0]['state abbreviation']
+            state_full = data['places'][0]['state']
+            return city, state_abbr, state_full
+        return None, None, None
     except Exception as e:
         print(f"Error fetching zip code {zipcode}: {e}")
-        return None
+        return None, None, None
 
-def find_official_website(city_state: str):
-    """Search for the official municipal website using DuckDuckGo HTML."""
-    query = f"official municipal government website for {city_state}"
+def find_official_website(city: str, state_full: str, state_abbr: str):
+    """Try Wikipedia first, fallback to DuckDuckGo HTML."""
+    # 1. Try Wikipedia (Most reliable for datacenters)
+    search_query = f"{city},_{state_full}".replace(" ", "_")
+    wiki_url = f"https://en.wikipedia.org/wiki/{search_query}"
+    
+    headers = {'User-Agent': 'Mozilla/5.0'}
+    try:
+        response = requests.get(wiki_url, headers=headers, timeout=10)
+        if response.status_code == 200:
+            soup = BeautifulSoup(response.text, 'html.parser')
+            infobox = soup.find('table', {'class': 'infobox'})
+            if infobox:
+                for row in infobox.find_all('tr'):
+                    th = row.find('th')
+                    if th and 'Website' in th.get_text():
+                        td = row.find('td')
+                        if td:
+                            link = td.find('a', class_='external text')
+                            if link and link.has_attr('href'):
+                                return link['href']
+    except Exception as e:
+        print(f"Error fetching from Wikipedia: {e}")
+
+    # 2. Fallback to DuckDuckGo HTML
+    query = f"official municipal government website for {city} {state_abbr}"
     url = 'https://html.duckduckgo.com/html/'
     data = {'q': query}
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-    }
     
     try:
         response = requests.post(url, data=data, headers=headers, timeout=10)
@@ -34,9 +55,7 @@ def find_official_website(city_state: str):
         for a in soup.find_all('a', class_='result__url'):
             href = a.get('href')
             if href:
-                # Basic cleanup of duckduckgo redirect if present
                 if '//duckduckgo.com/l/?' in href:
-                    # Sometimes DDG wraps URLs
                     continue
                 results.append(href)
                 
@@ -46,7 +65,8 @@ def find_official_website(city_state: str):
                     return r_url
             return results[0]
     except Exception as e:
-        print(f"Error searching for website for {city_state}: {e}")
+        print(f"Error searching for website for {city}: {e}")
+        
     return None
 
 def scrape_municipal_data(url: str):
@@ -104,17 +124,17 @@ def process_zipcode(zipcode: str):
     result = {"zipcode": zipcode, "data": None, "error": None}
     
     # 1. Map to city
-    city_state = get_city_state(zipcode)
-    if not city_state:
+    city, state_abbr, state_full = get_city_state(zipcode)
+    if not city:
         result["error"] = "Invalid or unknown zip code."
         return result
     
-    result["city_state"] = city_state
+    result["city_state"] = f"{city}, {state_abbr}"
     
     # 2. Find website
     # Adding a small delay to avoid rate limiting on search
     time.sleep(1)
-    url = find_official_website(city_state)
+    url = find_official_website(city, state_full, state_abbr)
     if not url:
         result["error"] = "Could not find an official website."
         return result
